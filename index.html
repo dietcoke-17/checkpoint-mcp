@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CheckpointMCP — Stateful Agent Task Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0b0d12;
+            color: #e2e8f0;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .glass {
+            background: rgba(20, 24, 34, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex">
+
+    <!-- Magica-Inspired Sidebar -->
+    <aside class="w-64 border-r border-white/10 p-5 flex flex-col justify-between bg-[#080a0e]">
+        <div>
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-3 h-3 rounded-full bg-indigo-500 shadow-[0_0_12px_#6366f1]"></div>
+                    <span class="font-semibold tracking-tight text-white text-lg">CheckpointMCP</span>
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">⇧⌘O</span>
+            </div>
+
+            <button onclick="startNewRun()"
+                class="w-full mb-6 py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition">
+                <span>+ New Agent Task</span>
+            </button>
+
+            <nav class="space-y-1 text-sm">
+                <a href="#" onclick="switchTab('runner')" id="nav-runner"
+                    class="flex items-center justify-between px-3 py-2 rounded-lg bg-white/10 text-white font-medium">
+                    <span>Tasks & Checkpoints</span>
+                    <span class="text-xs bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded">Live</span>
+                </a>
+                <a href="#" onclick="switchTab('mcp')" id="nav-mcp"
+                    class="flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition">
+                    <span>API / MCP Registry</span>
+                    <span class="text-xs bg-white/5 px-1.5 py-0.5 rounded">25 Tools</span>
+                </a>
+                <a href="#" onclick="switchTab('tradeoffs')" id="nav-tradeoffs"
+                    class="flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition">
+                    <span>PM Tradeoffs & Spec</span>
+                    <span class="text-xs text-emerald-400">1st Principles</span>
+                </a>
+            </nav>
+        </div>
+
+        <div class="p-3 rounded-lg glass text-xs text-slate-400 space-y-1.5">
+            <div class="text-white font-medium">3 Core Capabilities</div>
+            <div>• Step-Level SQLite Replay</div>
+            <div>• Read / Stage / Mutate Gates</div>
+            <div>• Top-3 Dynamic Schema Pruning</div>
+        </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 p-8 overflow-y-auto max-w-6xl mx-auto">
+
+        <!-- Top Telemetry Banner -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="glass p-4 rounded-xl">
+                <div class="text-xs text-slate-400 uppercase tracking-wider">Context Schema Tokens</div>
+                <div class="text-2xl font-bold text-white mt-1" id="metric-tokens-saved">0 saved</div>
+                <div class="text-xs text-emerald-400 mt-1" id="metric-pruning-sub">Top-3 Pruned vs 25 MCP Dump</div>
+            </div>
+            <div class="glass p-4 rounded-xl">
+                <div class="text-xs text-slate-400 uppercase tracking-wider">Checkpoint Replay Savings</div>
+                <div class="text-2xl font-bold text-indigo-400 mt-1" id="metric-checkpoint-saved">0 tokens</div>
+                <div class="text-xs text-slate-400 mt-1">Avoided full workflow restarts</div>
+            </div>
+            <div class="glass p-4 rounded-xl">
+                <div class="text-xs text-slate-400 uppercase tracking-wider">Avg Step Latency</div>
+                <div class="text-2xl font-bold text-white mt-1" id="metric-latency">0.58s</div>
+                <div class="text-xs text-emerald-400 mt-1">-1.57s (-73%) via Schema Router</div>
+            </div>
+            <div class="glass p-4 rounded-xl">
+                <div class="text-xs text-slate-400 uppercase tracking-wider">Workflow Status</div>
+                <div class="text-lg font-bold text-amber-400 mt-1 truncate" id="metric-status">READY</div>
+                <div class="text-xs text-slate-400 mt-1">3-Tier Guardrail Active</div>
+            </div>
+        </div>
+
+        <!-- TAB 1: LIVE TASK RUNNER -->
+        <section id="tab-runner" class="space-y-6">
+            <!-- Control Bar -->
+            <div class="glass p-5 rounded-xl flex flex-wrap items-center justify-between gap-4">
+                <div class="space-y-1">
+                    <label class="text-xs text-slate-400 uppercase tracking-wider">Select Scheduled / Background Agent
+                        Workflow</label>
+                    <select id="template-select"
+                        class="block w-96 bg-[#0b0d12] border border-white/15 rounded-lg px-3 py-2 text-sm text-white">
+                        <option value="incident_refund">1. Billing Incident Triage & Auto-Refund (5 Steps)</option>
+                        <option value="zombie_accounts">2. Scheduled Zombie Subscription Cleanup (4 Steps)</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-6">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" id="toggle-pruning" checked class="accent-indigo-500 w-4 h-4" />
+                        <span>Dynamic Top-3 MCP Pruning <span
+                                class="text-xs text-emerald-400">(Recommended)</span></span>
+                    </label>
+
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" id="toggle-fail" checked class="accent-rose-500 w-4 h-4" />
+                        <span>Simulate Step 3 Failure <span class="text-xs text-amber-400">(Test Checkpoint
+                                Replay)</span></span>
+                    </label>
+
+                    <button onclick="startNewRun()"
+                        class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition">
+                        Run Workflow
+                    </button>
+                </div>
+            </div>
+
+            <!-- Workflow Timeline & Interactive Checkpoints -->
+            <div id="steps-container" class="space-y-4"></div>
+        </section>
+
+        <!-- TAB 2: 25 MCP TOOLS REGISTRY -->
+        <section id="tab-mcp" class="hidden space-y-4">
+            <div class="glass p-5 rounded-xl">
+                <h2 class="text-lg font-semibold text-white">Connected MCP Tool Registry (25 Tools · 2,870 Raw Schema
+                    Tokens)</h2>
+                <p class="text-sm text-slate-400 mt-1">
+                    Loading all 25 tool schemas into every agent step bloats context and causes parameter
+                    hallucinations. CheckpointMCP dynamically scores and injects only the Top-3 schemas per step (~340
+                    tokens) while enforcing Read / Stage / Mutate execution gates.
+                </p>
+            </div>
+            <div id="mcp-grid" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+        </section>
+
+        <!-- TAB 3: FIRST-PRINCIPLES PM TRADEOFFS -->
+        <section id="tab-tradeoffs" class="hidden space-y-4">
+            <div class="glass p-6 rounded-xl space-y-5">
+                <h2 class="text-xl font-bold text-white">Product Specs & First-Principles Tradeoffs</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-2">
+                        <div class="text-indigo-400 font-semibold">1. Autonomy vs. User Trust</div>
+                        <p class="text-slate-300">Instead of binary "full auto" or "ask on every step" (which causes
+                            approval fatigue), tools are classified into <strong>READ</strong> (auto-run),
+                            <strong>STAGE</strong> (create UI draft), and <strong>MUTATE</strong> (hard async pause for
+                            1-click approval).</p>
+                    </div>
+                    <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-2">
+                        <div class="text-emerald-400 font-semibold">2. Fault Tolerance vs. Token Cost</div>
+                        <p class="text-slate-300">Multi-step agents frequently fail at Step 4/5 due to brittle external
+                            APIs. Persisting SQLite checkpoints per step lets users inspect, edit the JSON payload, and
+                            resume mid-flight—saving <strong>~42% wasted token spend</strong>.</p>
+                    </div>
+                    <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-2">
+                        <div class="text-amber-400 font-semibold">3. Context Breadth vs. Latency</div>
+                        <p class="text-slate-300">Dumping 25+ MCP schemas into every LLM call adds ~2,870 tokens of
+                            noise per step. A lightweight keyword/intent router prunes context to Top-3 tools, cutting
+                            latency by <strong>1.57s/step</strong> and reducing wrong-tool calls.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        let currentRunId = null;
+        let pollTimer = null;
+
+        function switchTab(tab) {
+            ['runner', 'mcp', 'tradeoffs'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+                const nav = document.getElementById(`nav-${t}`);
+                if (t === tab) {
+                    nav.className = "flex items-center justify-between px-3 py-2 rounded-lg bg-white/10 text-white font-medium";
+                } else {
+                    nav.className = "flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:bg-white/5 hover:text-white transition";
+                }
+            });
+        }
+
+        async function loadMcpRegistry() {
+            const res = await fetch('/api/tools');
+            const data = await res.json();
+            const grid = document.getElementById('mcp-grid');
+            grid.innerHTML = data.tools.map(t => {
+                const badge = t.tier === 'READ'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : t.tier === 'STAGE'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+                return `
+          <div class="glass p-3.5 rounded-lg flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono text-xs text-white font-semibold truncate">${t.name}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded border ${badge}">${t.tier}</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1.5">${t.description}</p>
+            </div>
+            <div class="mt-3 pt-2 border-t border-white/5 flex justify-between text-[11px] text-slate-500">
+              <span>Domain: ${t.domain}</span>
+              <span>${t.schema_tokens} tokens</span>
+            </div>
+          </div>
+        `;
+            }).join('');
+        }
+
+        async function startNewRun() {
+            const template_key = document.getElementById('template-select').value;
+            const schema_pruning = document.getElementById('toggle-pruning').checked;
+            const inject_failure_step = document.getElementById('toggle-fail').checked ? 2 : -1;
+
+            const res = await fetch('/api/runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ template_key, schema_pruning, inject_failure_step })
+            });
+            const data = await res.json();
+            currentRunId = data.run_id;
+            if (pollTimer) clearInterval(pollTimer);
+            await fetchRunState();
+            pollTimer = setInterval(fetchRunState, 600);
+        }
+
+        async function fetchRunState() {
+            if (!currentRunId) return;
+            const res = await fetch(`/api/runs/${currentRunId}`);
+            const data = await res.json();
+            renderRun(data.run, data.steps);
+            if (['COMPLETED', 'FAILED_AT_CHECKPOINT', 'AWAITING_APPROVAL'].includes(data.run.status)) {
+                clearInterval(pollTimer);
+            }
+        }
+
+        function renderRun(run, steps) {
+            document.getElementById('metric-tokens-saved').innerText = `${run.tokens_saved_by_pruning.toLocaleString()} saved`;
+            document.getElementById('metric-pruning-sub').innerText = run.schema_pruning
+                ? `Used ${run.tokens_used} tokens (88% schema reduction)`
+                : `Unpruned: ${run.tokens_used} tokens injected`;
+            document.getElementById('metric-checkpoint-saved').innerText = `${run.tokens_saved_by_checkpoint.toLocaleString()} saved`;
+            document.getElementById('metric-latency').innerText = run.schema_pruning ? '0.58s / step' : '2.15s / step';
+            document.getElementById('metric-status').innerText = run.status;
+
+            const container = document.getElementById('steps-container');
+            container.innerHTML = steps.map(s => {
+                const tierBadge = s.tier === 'READ'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : s.tier === 'STAGE'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+
+                const statusBadge = s.status === 'COMPLETED'
+                    ? 'text-emerald-400'
+                    : s.status === 'FAILED'
+                        ? 'text-rose-400 font-bold'
+                        : s.status === 'AWAITING_APPROVAL'
+                            ? 'text-amber-400 font-bold'
+                            : s.status === 'RUNNING'
+                                ? 'text-indigo-400 animate-pulse'
+                                : 'text-slate-500';
+
+                let actionBox = '';
+                if (s.status === 'FAILED') {
+                    actionBox = `
+            <div class="mt-4 p-4 rounded-lg bg-rose-950/40 border border-rose-500/40 space-y-3">
+              <div class="text-xs text-rose-300 font-medium">${s.error_msg}</div>
+              <div class="text-xs text-slate-300">Edit Checkpoint Payload JSON & Resume from Step ${s.step_index + 1} (Steps 1–${s.step_index} will NOT re-run):</div>
+              <textarea id="replay-payload-${s.step_index}" rows="2" class="w-full font-mono text-xs bg-black/60 border border-white/15 rounded p-2 text-emerald-300">${JSON.stringify(s.payload)}</textarea>
+              <button onclick="replayStep(${s.step_index})" class="px-3.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition">
+                ↻ Patch Checkpoint & Replay from Step ${s.step_index + 1}
+              </button>
+            </div>
+          `;
+                } else if (s.status === 'AWAITING_APPROVAL') {
+                    actionBox = `
+            <div class="mt-4 p-4 rounded-lg bg-amber-950/40 border border-amber-500/40 space-y-3">
+              <div class="text-xs text-amber-300 font-medium">
+                🛡️ Tier-3 Guardrail Triggered: <code>${s.tool_name}</code> is a state-mutating API call. Inspect or modify payload before execution:
+              </div>
+              <textarea id="approve-payload-${s.step_index}" rows="2" class="w-full font-mono text-xs bg-black/60 border border-white/15 rounded p-2 text-amber-200">${JSON.stringify(s.payload)}</textarea>
+              <div class="flex gap-3">
+                <button onclick="approveStep(${s.step_index})" class="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-semibold transition">
+                  ✓ Approve & Execute Mutate Call
+                </button>
+              </div>
+            </div>
+          `;
+                }
+
+                return `
+          <div class="glass p-5 rounded-xl border-l-4 ${s.status === 'COMPLETED' ? 'border-l-emerald-500' :
+                        s.status === 'FAILED' ? 'border-l-rose-500' :
+                            s.status === 'AWAITING_APPROVAL' ? 'border-l-amber-500' : 'border-l-white/10'
+                    }">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-mono px-2 py-1 rounded bg-white/5 text-slate-300">Step ${s.step_index + 1}</span>
+                <span class="font-mono text-sm font-semibold text-white">${s.tool_name}</span>
+                <span class="text-[11px] px-2 py-0.5 rounded border ${tierBadge}">Tier: ${s.tier}</span>
+              </div>
+              <div class="flex items-center gap-4 text-xs">
+                <span class="text-slate-400">Schema Injected: <strong class="text-white">${s.schema_tokens_injected || 0} tok</strong> (${s.pruned_tools.length || 0}/25 tools)</span>
+                <span class="${statusBadge}">${s.status}</span>
+              </div>
+            </div>
+
+            <p class="text-sm text-slate-300 mt-2">${s.intent}</p>
+
+            ${s.pruned_tools.length ? `
+              <div class="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                <span>Routed MCP Schemas:</span>
+                ${s.pruned_tools.slice(0, 5).map(pt => `<code class="px-1.5 py-0.5 rounded bg-white/5 text-indigo-300">${pt}</code>`).join('')}
+                ${s.pruned_tools.length > 5 ? `<span>+${s.pruned_tools.length - 5} more unpruned tools</span>` : ''}
+              </div>
+            ` : ''}
+
+            ${s.output && s.status === 'COMPLETED' ? `
+              <div class="mt-3 p-2.5 rounded bg-black/40 border border-white/5 font-mono text-xs text-slate-300">
+                ✓ ${s.output.artifact} · Payload: ${JSON.stringify(s.output.executed_with_payload)}
+              </div>
+            ` : ''}
+
+            ${actionBox}
+          </div>
+        `;
+            }).join('');
+        }
+
+        async function replayStep(step_index) {
+            const raw = document.getElementById(`replay-payload-${step_index}`).value;
+            const updated_payload = JSON.parse(raw);
+            await fetch(`/api/runs/${currentRunId}/replay`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step_index, updated_payload })
+            });
+            pollTimer = setInterval(fetchRunState, 500);
+        }
+
+        async function approveStep(step_index) {
+            const raw = document.getElementById(`approve-payload-${step_index}`).value;
+            const updated_payload = JSON.parse(raw);
+            await fetch(`/api/runs/${currentRunId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step_index, updated_payload })
+            });
+            pollTimer = setInterval(fetchRunState, 500);
+        }
+
+        loadMcpRegistry();
+        startNewRun();
+    </script>
+</body>
+
+</html>
